@@ -40,9 +40,11 @@ def test_status_and_log_never_carry_a_secret(tmp_path, monkeypatch, caplog):
     fill_secrets(root)
     monkeypatch.setenv("FLEET_NODE_ID", NODE)
     monkeypatch.setattr(runner, "run", _run_once)
-    for module in (agent, lead):
+    stopped = threading.Event()
+    stopped.set()
+    for module, kw in ((agent, {"stop": stopped}), (lead, {})):
         with caplog.at_level(logging.DEBUG):
-            module.main()
+            module.main(**kw)
         assert status.read()["role"] == module.__name__.split(".")[-1]
         assert SENTINEL not in status.path(root).read_text()
         assert SENTINEL not in caplog.text

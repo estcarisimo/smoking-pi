@@ -32,8 +32,18 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      its node id (the first run creates it and writes it to
                      the env file, so backup and restore carry it), node and site
                      names, role (node, lead, both or none), the lead URLs,
-                     and whether the fleet agent is enrolled. Joining a fleet
-                     is not built yet.
+                     whether the fleet agent is enrolled, and once it is: the
+                     lead in use, the last heartbeat, the certificate's end,
+                     and a revoked, stopped or expired state.
+  fleet join         Join a fleet (Pro, docs/fleet.md): paste the join string
+                     that 'fleet token' printed on the lead, or pipe it in --
+                     never as an argument (it holds a token). Checks the lead's
+                     root against it, makes this node's key here, enrolls,
+                     records FLEET_LEAD_URLS and turns the fleet agent on.
+  fleet leave [--force]
+                     Leave the fleet: tell the lead, remove the key and
+                     certificate, turn the agent off. --force when no lead
+                     answers. The measurements and their history stay.
   tunnel [status | start [--yes] | stop]
                      Cloudflare quick tunnels: public trycloudflare.com URLs
                      for the web pages, no account needed. Anyone with a URL

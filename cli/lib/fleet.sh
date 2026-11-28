@@ -2,9 +2,9 @@
 # smoking-pi fleet: this installation's place in a Fleet (docs/fleet.md).
 # Sourced by cli/smoking-pi, never run on its own.
 #
-# This release has one subcommand, `status`. Creating a fleet, joining and
-# leaving one, and the lead's commands come with the lead and the agent
-# that implement them (docs/fleet.md, "What is not built yet").
+# Subcommands: `status`, and on a node `join` and `leave` (fleet_join,
+# fleet_leave below). The lead's commands come with the lead
+# (docs/fleet.md, "What is not built yet").
 
 # A version 4 UUID, lowercase. /proc has one on Linux; elsewhere (macOS)
 # 16 random bytes with the version and variant bits set.
@@ -109,6 +109,13 @@ else:
     # A corrupt or mismatched enrollment is not "no": it waits for a person.
     enrolled = (None if agent_state in ("state_corrupt", "identity_mismatch")
                 else bool(agent.get("enrolled")))
+# The agent's own report of its link to the lead (fleet/status.py FIELDS):
+# read, never interpolated into a command.
+link = {k: agent.get(k) for k in ("lead_link", "lead_in_use", "last_heartbeat",
+                                  "next_heartbeat", "failures", "last_error",
+                                  "cert_not_after", "renew_after", "revoked_at",
+                                  "detail", "site_id", "store_received")}
+agent_urls = agent.get("lead_urls") if isinstance(agent.get("lead_urls"), list) else None
 out = {
     "node_id": e["FLEET_ID"],
     "node_name": e["FLEET_NAME"],
@@ -119,6 +126,21 @@ out = {
     "agent": agent_state,
     "enrolled": enrolled,
     "fleet_id": agent.get("fleet_id") if enrolled else None,
+    "site_id": link["site_id"] if enrolled else None,
+    # The list the agent holds (a lead may have replaced the one joined with).
+    "agent_lead_urls": agent_urls if enrolled else None,
+    # The link to the lead (ok, failing, idle); the container's own health
+    # is only whether the agent process is alive.
+    "lead_link": link["lead_link"],
+    "lead_in_use": link["lead_in_use"],
+    "last_heartbeat": link["last_heartbeat"],
+    "next_heartbeat": link["next_heartbeat"],
+    "failures": link["failures"],
+    "last_error": link["last_error"],
+    "cert_not_after": link["cert_not_after"],
+    "renew_after": link["renew_after"],
+    "revoked_at": link["revoked_at"],
+    "store_received": link["store_received"],
 }
 if e["FLEET_JSON"] == "1":
     print(json.dumps(out, indent=1))
@@ -145,6 +167,13 @@ elif agent_state == "state_corrupt":
 elif agent_state == "identity_mismatch":
     enrolled_text = ("not as this node: the agent is enrolled under another node id "
                      "(docs/fleet.md, \"Two installations, one node id\")")
+elif agent_state == "revoked":
+    enrolled_text = (f"revoked from fleet {out['fleet_id'] or '?'} at {link['revoked_at'] or '?'}: "
+                     f"nothing is sent; '{cli} fleet leave' clears it")
+elif agent_state == "cert_expired":
+    enrolled_text = (f"yes, fleet {out['fleet_id'] or '?'}, but the certificate expired "
+                     f"({link['cert_not_after'] or '?'}): re-join with '{cli} fleet leave "
+                     f"--force' then '{cli} fleet join'")
 elif enrolled:
     enrolled_text = f"yes, fleet {out['fleet_id'] or '?'}"
 else:
@@ -157,9 +186,126 @@ print(f"  role:       {roles[role]}")
 print(f"  leads:      {', '.join(urls) if urls else 'none set'}")
 print(f"  enrolled:   {enrolled_text}")
 if agent_state not in ("off", "not_running"):
-    print(f"  agent:      {agent_state}")
-print("Joining a fleet is not built yet: this release gives the installation its identity.")
+    print(f"  agent:      {agent_state}"
+          + (f" (link to the lead: {link['lead_link']})" if link["lead_link"] else ""))
+if enrolled:
+    if agent_urls and agent_urls != urls:
+        print(f"  lead list:  {', '.join(agent_urls)} (the lead's latest; the agent uses it)")
+    if agent_state == "stopped" and link["detail"]:
+        print(f"  stopped:    {link['detail']}")
+    print(f"  lead now:   {link['lead_in_use'] or 'none answered yet'}")
+    print(f"  heartbeat:  last {link['last_heartbeat'] or 'never (since the agent started)'}"
+          + (f", next {link['next_heartbeat']}" if link["next_heartbeat"] else ""))
+    if link["failures"]:
+        print(f"  failing:    {link['failures']} attempt(s): {link['last_error'] or '?'}"
+              " (the node keeps measuring on its own)")
+    if link["cert_not_after"]:
+        print(f"  cert until: {link['cert_not_after']} (renews from {link['renew_after']})")
+elif agent_state in ("off", "not_running", "not_enrolled"):
+    print(f"Join a fleet: {cli} fleet join (paste the join string '{cli} fleet token' "
+          "printed on the lead).")
 PY
+}
+
+# --- join and leave (the node's side; docs/fleet.md, "Joining a fleet") ------
+
+# The enrollment runs in the fleet image, not on the host: that is where the
+# key is generated and kept (the agent's volume, as the agent's user) and
+# where `cryptography` is. `compose run` of the agent's service gets the join
+# string on its stdin: the string carries a single-use token, so it never
+# goes in an argument (every user on the host sees arguments in `ps`, and
+# the shell keeps them in its history), the environment, the env file or a
+# log. fleet/join.py says the rest.
+fleet_run() {
+    # fleet_run MODULE [ARGS...]: python -m fleet.MODULE in a one-off agent
+    # container, stdin passed through; its stdout is the result (JSON).
+    compose run --rm --no-deps -T fleet-agent python -m "fleet.$1" "${@:2}"
+}
+
+fleet_join() {
+    local js="" out rc=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -h|--help) command_help fleet; return 0 ;;
+            spfleet*)
+                echo "Not as an argument: the join string holds a token, and arguments show in 'ps' and the shell's history." >&2
+                echo "Run '$(cli_name) fleet join' and paste it when asked, or pipe it in: $(cli_name) fleet join < file" >&2
+                return 2 ;;
+            *) echo "unknown option $1" >&2; return 2 ;;
+        esac
+    done
+    fleet_ensure_node_id >&2 || return 1
+    if [ -t 0 ]; then
+        printf 'Paste the join string (from %s fleet token on the lead; it is not shown): ' "$(cli_name)" >&2
+        IFS= read -rs js || true
+        echo >&2
+    else
+        IFS= read -r js || true
+    fi
+    js="${js//[[:space:]]/}"
+    case "$js" in
+        spfleet1_*) ;;
+        "") echo "No join string given." >&2; return 2 ;;
+        *) echo "That is not a join string (it starts with spfleet1_). Copy it again from '$(cli_name) fleet token' on the lead." >&2; return 2 ;;
+    esac
+    echo "Joining: the lead's root is checked against the join string, then this node enrolls (its key is made here and never leaves it)."
+    out="$(printf '%s\n' "$js" | fleet_run join)" || rc=$?
+    js=""
+    if [ "$rc" -ne 0 ]; then
+        [[ "$out" == *'"joined"'* ]] || echo "The join could not run (see above). Nothing was changed." >&2
+        return 1
+    fi
+    local urls summary
+    if ! urls="$(FLEET_OUT="$out" python3 -c 'import json, os; print(",".join(json.loads(os.environ["FLEET_OUT"])["lead_urls"]))' 2>/dev/null)" || [ -z "$urls" ]; then
+        echo "The join answered something unexpected; '$(cli_name) fleet status' shows where the node stands." >&2
+        return 1
+    fi
+    summary="$(FLEET_OUT="$out" python3 -c '
+import json, os
+d = json.loads(os.environ["FLEET_OUT"])
+fleet, node, lead, until = d["fleet_id"], d["node_id"], d["lead_in_use"], d["not_after"]
+print(f"Joined fleet {fleet} as node {node}, through {lead}.")
+print(f"Its certificate is valid until {until} and renews by itself.")
+if d.get("store_received"):
+    print("The lead named a store to replicate to; this release keeps it but does not replicate yet.")
+')"
+    echo "$summary"
+    env_set FLEET_LEAD_URLS "$urls"
+    echo "FLEET_LEAD_URLS=$urls"
+    if profile_on fleet; then
+        config_apply FLEET_LEAD_URLS
+    else
+        cmd_services enable fleet
+    fi
+    echo "The node keeps measuring as before; '$(cli_name) fleet status' shows its heartbeats."
+}
+
+fleet_leave() {
+    local force=() out rc=0 was_on=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --force) force=(--force); shift ;;
+            -h|--help) command_help fleet; return 0 ;;
+            *) echo "unknown option $1" >&2; return 2 ;;
+        esac
+    done
+    # The agent and the leave never write the enrollment at the same time.
+    if profile_on fleet; then
+        was_on=1
+        compose stop fleet-agent >/dev/null 2>&1 || true
+    fi
+    out="$(fleet_run leave "${force[@]}" </dev/null)" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        # Still enrolled: the agent goes back to work.
+        [ "$was_on" = 0 ] || compose up -d fleet-agent >/dev/null 2>&1 || true
+        [[ "$out" == *'"left"'* ]] || echo "Leaving could not run (see above). Nothing was changed." >&2
+        return 1
+    fi
+    # The lead list was this node's; on a host that is also the lead, it is
+    # the lead's own setting too, and stays.
+    profile_on fleet-lead || env_set FLEET_LEAD_URLS ""
+    [ "$was_on" = 0 ] || cmd_services disable fleet
+    echo "This installation is standalone again. Its measurements and history are untouched."
 }
 
 cmd_fleet() {
@@ -171,7 +317,9 @@ cmd_fleet() {
     local sub="${1:-}"; shift || true
     case "$sub" in
         status) fleet_status "$@" ;;
+        join) fleet_join "$@" ;;
+        leave) fleet_leave "$@" ;;
         ""|-h|--help) command_help fleet ;;
-        *) echo "unknown fleet command: $sub (this release has: status)" >&2; return 2 ;;
+        *) echo "unknown fleet command: $sub (this release has: status, join, leave)" >&2; return 2 ;;
     esac
 }

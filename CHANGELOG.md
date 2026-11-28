@@ -42,6 +42,43 @@ version gets a matching GitHub release and git tag.
     when the image would miss a module its entrypoints import.
   Creating a fleet, joining it, heartbeats and replication come next; the
   docs say so plainly.
+- **Fleet, the node's side: `smoking-pi fleet join`, heartbeats, renewal,
+  `smoking-pi fleet leave`.** A node had an identity and a protocol but no
+  way to use them: it could not join a lead, so a person running several
+  Pis still had to look at each one, and the agent that would talk to a lead
+  had to be written so that a lead that goes away, lies, or revokes the node
+  can never cost the node a measurement or leak its key. This adds the
+  agent (it needs a lead to join; the lead is the next piece):
+  - **`smoking-pi fleet join`** reads the join string from the terminal
+    (not echoed) or stdin, never from an argument, which every user sees
+    in `ps`; it runs the enrollment in the fleet image, where the key is
+    made (P-256, 0600, never sent), refuses a lead root whose SHA-256 is not
+    the join string's before sending anything, checks the certificate it
+    gets (the chain up to that root, this key, this node id), records
+    `FLEET_LEAD_URLS` and turns the agent on. A failed join keeps nothing,
+    and each failure (unreachable, wrong root, used token, node already
+    known) says what to do;
+  - the **agent** heartbeats over mutual TLS, with the pinned root as its
+    only trust anchor, at the interval the lead returns, trying the leads
+    in order with backoff and jitter; it applies `revoked` (stops for good,
+    keeps measuring), `lead_endpoints`, `renew_now`, keeps `repoint_store`
+    and `start_seed` for the data plane and reports them not applied, and
+    renews its certificate with a new key from two thirds of its life on,
+    replacing the old pair only once the new one is stored;
+  - a lead away for hours or days changes nothing on the node; the agent
+    never exits on a bad state (`state_corrupt`, `identity_mismatch`,
+    `revoked`, `cert_expired`, `stopped` are states `fleet status` shows),
+    and `fleet status` tells "not in a fleet" from "in a fleet and its link
+    to the lead failing", while Docker's healthcheck says only whether the
+    agent process is alive (a lead away is not an unhealthy container);
+  - **`smoking-pi fleet leave`** tells the lead, removes the key and
+    certificate and turns the agent off; `--force` when no lead answers. It
+    never touches the measurements;
+  - **`fleet status`** shows the lead in use, the last heartbeat, the
+    certificate's end and the states above.
+  The fleet image now installs `cryptography` (the protocol stays the
+  standard library only). Heartbeats do not report the doctor's counts,
+  measurement freshness or the uplink yet, and nothing is replicated.
 
 ## [2.55.0] — 2026-11-26
 
