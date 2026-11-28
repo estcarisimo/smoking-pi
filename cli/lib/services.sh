@@ -131,7 +131,7 @@ cmd_services() {
             mcp) echo "Next: $(cli_name) connect (an assistant) or $(cli_name) openclaw (OpenClaw on this machine)." ;;
             pathmeter) echo "The first paths arrive about two minutes after start; what they cost shows in '$(cli_name) budget' after the first cycle." ;;
             fleet) echo "The agent idles until this node joins a fleet: '$(cli_name) fleet join'. '$(cli_name) fleet status' shows it." ;;
-            fleet-lead) echo "Creating a fleet is not built yet: the service only reports its state. '$(cli_name) fleet status' shows it." ;;
+            fleet-lead) echo "The lead serves nodes once a fleet exists ('$(cli_name) fleet init' creates one); '$(cli_name) fleet status' shows it." ;;
         esac
     done
     # The OpenClaw automations' checks call the MCP server: without it, every

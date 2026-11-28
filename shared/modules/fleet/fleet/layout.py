@@ -112,6 +112,20 @@ class LeadPaths:
         and join tokens as SHA-256 only (SQLite)."""
         return self.root / "lead" / "registry.db"
 
+    @property
+    def server_cert(self) -> Path:
+        """A public copy of this lead's TLS certificate then the
+        intermediate (PEM), issued for the hosts of FLEET_LEAD_URLS. The
+        server reads ``server_key``, never this file."""
+        return self.root / "lead" / "tls" / "server.pem"
+
+    @property
+    def server_key(self) -> Path:
+        """The TLS server key, its certificate and the intermediate, in one
+        file so the pair is replaced in one rename (pki.ensure_server_cert);
+        gunicorn's certfile and keyfile. 0600."""
+        return self.root / "lead" / "tls" / "server-key.pem"
+
 
 def node_paths(root: Path | None = None) -> NodePaths:
     return NodePaths(root or state_dir())
@@ -127,6 +141,6 @@ def _props(cls: type) -> list[str]:
 
 #: Files that hold a secret: mode 0600, never read into a status or a log.
 NODE_SECRETS = ("key", "store_token")
-LEAD_SECRETS = ("root_key", "intermediate_key", "registry")
+LEAD_SECRETS = ("root_key", "intermediate_key", "registry", "server_key")
 assert set(NODE_SECRETS) <= set(_props(NodePaths))
 assert set(LEAD_SECRETS) <= set(_props(LeadPaths))

@@ -4,10 +4,13 @@ version = "1.0.0"
 description = "Fleet: a node agent and a lead, and the protocol between them"
 requires-python = ">=3.11"
 # The protocol stays the standard library only; the node's key, CSR and
-# certificate checks need cryptography. The Dockerfile installs exactly
-# these, at the same pins: keep the two in step (tests/test_image.py).
+# certificate checks and the lead's CA need cryptography; the lead's HTTPS
+# server, which hands it the client certificate, is gunicorn (gthread).
+# The Dockerfile installs exactly these, at the same pins: keep the two in
+# step (tests/test_image.py).
 dependencies = [
     "cryptography==50.0.2",
+    "gunicorn==27.0.1",
 ]
 
 [project.optional-dependencies]

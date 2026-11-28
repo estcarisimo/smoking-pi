@@ -8,10 +8,12 @@ its own history, whatever happens to the lead.
 !!! warning "What this release has, and what it does not"
     This release gives every Pro installation its **identity** (a node id and
     the names a lead will show), adds the two services **switched off by
-    default**, the **protocol** the node agent and the lead speak, and the
+    default**, the **protocol** the node agent and the lead speak, **the
+    lead** (creating a fleet and its CA, join strings, the node registry and
+    the HTTPS endpoints: [Setting up a lead](#setting-up-a-lead)) and the
     **node's side**: `smoking-pi fleet join`, heartbeats, certificate
     renewal and `smoking-pi fleet leave` ([On a node](#on-a-node)). It does
-    **not** replicate any data, and the node's side needs a lead to join. See
+    **not** replicate any data. See
     [What is not built yet](#what-is-not-built-yet).
 
 Fleet is part of the **Pro** edition. Basic and Standard have no fleet agent:
@@ -41,10 +43,50 @@ The first `fleet status` (or `smoking-pi enable fleet`) creates the node id.
 | Service | Profile | Turn on | What it is |
 | --- | --- | --- | --- |
 | `fleet-agent` | `fleet` | `smoking-pi enable fleet` | The node agent: this host reports to a lead. |
-| `fleet-lead` | `fleet-lead` | `smoking-pi enable fleet-lead` | The lead: other hosts report here. Its CA and node registry. |
+| `fleet-lead` | `fleet-lead` | `smoking-pi fleet init` ([Setting up a lead](#setting-up-a-lead)) | The lead: other hosts report here. Its CA, node registry and HTTPS endpoints (port `FLEET_LEAD_PORT`). |
 
 Both run the same image (`fleet`), with no capability, a read-only root
 filesystem and one volume each (`fleet-agent-state`, `fleet-lead-state`).
+
+## Setting up a lead
+
+On the host that leads (a measuring Pi, or a machine that only leads):
+
+```bash
+smoking-pi fleet init --url https://192.168.1.10:8443 --name "Home fleet"
+```
+
+```text
+Created fleet 0b1e2f3a-5c6d-4e7f-8a9b-0c1d2e3f4a5b (Home fleet), led from here.
+  lead URLs:   https://192.168.1.10:8443
+  root SHA-256: 3f1c… (every join string carries it)
+Next: 'smoking-pi fleet token' prints a join string for a node.
+```
+
+`--url` is where nodes reach the lead: an address or a name every node can
+reach, on the port `FLEET_LEAD_PORT` (8443 unless you change it). Give
+`--url` once per address (a LAN address and a public name, say); the lead's
+TLS certificate names them all, and changing them later
+(`smoking-pi config set FLEET_LEAD_URLS …`) re-issues it and tells every
+node. Run without `--url`, the command suggests this host's address.
+
+`fleet init` creates the fleet id, the fleet's CA (a root, and this lead's
+intermediate signed by it), the node registry and the lead's server
+certificate, all in the `fleet-lead-state` volume, then turns the
+`fleet-lead` service on. From then on:
+
+| Command | What it does |
+| --- | --- |
+| `smoking-pi fleet token [--name N] [--site S] [--ttl 15m]` | Prints a join string for one node, once. It is single-use and expires (15 minutes unless `--ttl`, at most 24 h); the lead keeps only its SHA-256. `--name`/`--site` file the node under these names, whatever it calls itself. |
+| `smoking-pi fleet nodes [--json]` | The enrolled nodes: state (`active`, `revoked`, `left`, `conflict`, "silent" when not heard from in 5 minutes), last heartbeat, version, certificate expiry. |
+| `smoking-pi fleet revoke NODE` | Cuts a node off (its id, 8 or more characters of it, or its name). Its next heartbeat is told to stop; only a new join string brings it back. |
+| `smoking-pi fleet ca status` | The CA: root fingerprint, whether the root key is on this lead, the intermediate's expiry. |
+| `smoking-pi fleet status` | Also shows what the lead serves, and whether its root key is still online. |
+
+`FLEET_LEAD_MODE` says whether the lead also measures as a node of its own
+fleet (`node`, the default) or only leads (`dedicated`). The lead never
+opens a connection to a node: nodes behind NAT need nothing forwarded, and
+only the lead's port must be reachable from them.
 
 ## Three topologies
 
@@ -178,9 +220,9 @@ what to do:
 | No lead answered | nothing changed; the same join string works again until it expires |
 | The root does not match the fingerprint | **REFUSED**, nothing sent: another fleet's string, or something between the node and the lead that is not the lead |
 | Token unknown, used or expired | ask for a new join string |
-| The lead already has this node id (`node_exists`) | remove it on the lead first (an earlier join whose answer was lost, for instance), then use a new join string |
+| The lead already has this node id (`node_exists`) | it holds a live certificate there (an earlier join whose answer was lost, for instance): on the lead, `smoking-pi fleet revoke NODE`, then a new join string |
 | Two installations with this id (`duplicate_node`) | see [Two installations, one node id](#two-installations-one-node-id) |
-| The certificate does not check out | **REFUSED**, nothing kept; the lead has probably recorded the node: remove it there and ask for a new string |
+| The certificate does not check out | **REFUSED**, nothing kept; the lead has probably recorded the node: `smoking-pi fleet revoke NODE` there, and ask for a new string |
 
 ### What a node reports
 
@@ -241,8 +283,10 @@ container stays `healthy` in `docker ps`.
 **A certificate that expired while the lead was away** cannot be renewed
 (renewal is authenticated with it). The agent stops sending and says so; the
 way back is a new join: `smoking-pi fleet leave --force`, a new join string
-from the lead, `smoking-pi fleet join` (the lead's operator may have to
-remove the node first, for the same node id to join again).
+from the lead, `smoking-pi fleet join`. The lead lets a node id whose
+certificates all expired join again; it refuses (`node_exists`) only one
+that still holds a live certificate, which `smoking-pi fleet revoke NODE` on
+the lead releases.
 
 ### States that wait for a person
 
@@ -270,7 +314,8 @@ removes the key, certificate, root and enrollment from the agent's volume,
 turns the agent off and clears `FLEET_LEAD_URLS` (kept on a host that is
 also the lead). If no lead answers, nothing is removed and the agent goes
 back to work; `--force` leaves anyway, and the lead keeps listing the node
-until its operator removes it. A revoked node leaves without asking the
+as active until its operator revokes it (`smoking-pi fleet revoke NODE`;
+revoked and left nodes stay in `fleet nodes`). A revoked node leaves without asking the
 lead. Leaving never touches the measurements or their history, and the node
 id stays: it belongs to the installation.
 
@@ -301,6 +346,74 @@ id stays: it belongs to the installation.
   with a certificate from the fleet CA; the node authenticates with a
   write-only token scoped to its own bucket.
 
+### On the lead
+
+- **TLS.** The lead serves HTTPS with its own certificate, issued by its
+  intermediate for the hosts of `FLEET_LEAD_URLS` and sent with the
+  intermediate; it re-issues it, with a new key, 30 days before it expires
+  or when the URLs change. Client certificates are verified in the
+  handshake against the **root**, so a certificate from any of the fleet's
+  intermediates is accepted; enrollment is the one route that needs none.
+- **Every request is looked up.** On heartbeat, renew and leave the lead
+  finds the client certificate by its SHA-256 in the registry: one it did
+  not issue, one for another node id than the request's, an expired one or
+  a revoked one is refused (`unauthenticated`, or for a revoked node a
+  `revoked` directive / error). Revoking a node revokes every certificate it
+  ever held, so a node that joins again does not bring its old ones back.
+- **Join tokens** are 256 random bits, stored as SHA-256 only, single-use,
+  and consumed in the same transaction that issues the certificate. A
+  request with a valid token and a bad certificate request is refused
+  without spending the token. The token is always looked up first, so **a
+  valid token always enrolls**, whatever else came from anywhere. Only
+  invalid ones are throttled: from the fifth invalid token one address sent
+  within 15 minutes, its invalid tokens are answered `rate_limited` (with
+  `retry_after`) instead of `token_invalid`, and the lead logs one line
+  saying so. Nothing locks enrollment out: behind Docker's port publishing
+  every client may appear as one address, and a lockout would let anyone
+  who can reach the port keep real nodes out. The tokens' size is what
+  makes guessing hopeless.
+- **Certificate requests** must be P-256, with a signature that verifies
+  (proof the node holds the key), and must not name another node (a CN
+  `node-…` or a node URN for a different id). The lead writes the subject
+  itself. A renewal must be for a new key.
+- **Errors** are the protocol's `ErrorResponse`: a fixed sentence per code
+  and an `error_id`; what went wrong is in the lead's log under that id,
+  never in the answer.
+
+### The root key
+
+`fleet init` leaves the root key on the lead because the lead needs it once
+more only when another lead joins or the role moves. Taking it offline
+removes the key that could mint a whole new set of leads from the one
+machine that is online:
+
+```bash
+smoking-pi fleet ca offline-root /media/usb/fleet-root-key.pem
+```
+
+The command refuses a RAM-backed place (`/tmp`, `/dev/shm`, `/run`, any
+tmpfs), writes the key to the file (mode 0600), flushes the file and its
+directory to the disk, has the lead check that the copy is its root key, and
+only then deletes it from the lead. The serving lead never loads the root
+key, so once the file is gone no process on the lead holds it, not even in
+memory. Keep the file offline (a USB stick in a drawer, a password
+manager): it is the only copy. The lead keeps working without it: its
+intermediate signs every node certificate. `smoking-pi fleet ca
+restore-root FILE` puts it back, after checking it is the same key; a file
+that is not the root key changes nothing either way.
+
+**A second lead, or moving the role** (not built yet; the layout is ready
+for it). The procedure will be: the new lead creates its own intermediate
+key and a request for it; whoever holds the root key signs it with the root
+(`fleet/pki.py` has both steps, `intermediate_csr` and `sign_intermediate`,
+tested); the new lead installs the root and its intermediate, takes a copy
+of the registry, and nodes find it through the lead list (a new epoch).
+Nodes keep trusting the same root, their certificates from the old lead
+stay valid until they renew, and the new lead asks them to renew from its
+own intermediate (`renew_now` for a certificate another intermediate
+issued). The commands for this (`fleet ca sign-lead`, `fleet promote`) do
+not exist yet.
+
 ### Where the secrets live
 
 | Secret | Where | Never in |
@@ -308,8 +421,10 @@ id stays: it belongs to the installation.
 | Join token | nowhere on the node: read by `fleet join` from the terminal or stdin (never an argument), passed on stdin to the enrollment, sent once; the lead keeps its SHA-256 only | arguments, the environment, the env file, logs, `repr`, status |
 | Node private key | `fleet-agent-state`: `node/key.pem`, mode 0600 | any message |
 | Store write token | `fleet-agent-state`: `node/store-token`, 0600; and InfluxDB's remote | logs, status, heartbeat |
-| Root key | the lead that ran the fleet's creation, `lead/ca/root-key.pem`, 0600, meant to be moved offline | any message |
+| Root key | the lead that ran the fleet's creation, `lead/ca/root-key.pem`, 0600, until `fleet ca offline-root` moves it to a file you keep | any message |
 | Intermediate key | `fleet-lead-state`: `lead/ca/intermediate-key.pem`, 0600 | any message |
+| Lead TLS key | `fleet-lead-state`: `lead/tls/server-key.pem`, 0600 | any message |
+| Join tokens | the lead's registry (`lead/registry.db`, 0600), as SHA-256 only | logs, status |
 
 `fleet/layout.py` is the one list of these paths. The protocol types the two
 secrets that do travel (`Secret`): their `repr` and `str` are redacted, a
@@ -748,22 +863,29 @@ explains each.
 | `FLEET_NODE_ID` | created once | This installation's id. Never set by hand. |
 | `FLEET_NODE_NAME` | `node-<first 8 of the id>` | The name the lead shows. |
 | `FLEET_SITE_NAME` | `default` | The site's name; the lead gives it an id. |
-| `FLEET_LEAD_URLS` | empty | The leads' https base URLs, comma-separated, in order. `fleet join` writes it and `fleet leave` clears it; once joined, the agent follows the list the lead gives and tries these after it. |
+| `FLEET_LEAD_URLS` | empty | The leads' https base URLs, comma-separated, in order. On a node, `fleet join` writes it and `fleet leave` clears it; once joined, the agent follows the list the lead gives and tries these after it. On the lead: where nodes reach it (`fleet init --url`; `fleet leave` keeps it there); its certificate names these hosts. |
 | `FLEET_LEAD_MODE` | `node` | On the lead: `node` (it measures too) or `dedicated`. |
+| `FLEET_LEAD_PORT` | `8443` | On the lead: the host port nodes connect to. |
 
 ## What is not built yet
 
 Stated plainly, so nothing here is mistaken for a feature:
 
-- **The lead**: creating a fleet and its CA, join tokens, the registry,
-  the HTTPS endpoints, listing and revoking nodes, moving the role. Its
-  commands (`fleet init`, `fleet token`, `fleet nodes`, `fleet revoke`,
-  `fleet promote`) do not exist yet.
 - **On the node**: reporting the doctor's counts, measurement freshness
   and the uplink interface in heartbeats.
+- **Moving the lead role and a second lead**: the commands to sign another
+  lead's intermediate with the root and to hand the registry over
+  (`fleet ca sign-lead`, `fleet promote`). The CA layout and the signing
+  step are built and tested ([The root key](#the-root-key)).
+- **Renewing the intermediate**: it lasts five years, and there is no
+  command to renew it, nor to replace one that expired; with the root key
+  offline that will mean restoring the root key first.
+- **Rotating the root** (it lasts twenty years): no command, and nodes pin
+  it, so a new root means every node joins again.
+- **Resolving a `conflict` node** other than by revoking it, and deleting
+  nodes from the registry (revoked and left nodes stay listed).
 - **The data plane**: the lead's store, per-node buckets and tokens,
   replication, the history seed, and showing the nodes' data on the lead.
+  Until then enrollment answers `store: null` ("no store yet", as the
+  protocol defines), and no heartbeat directive concerns replication.
 - **Election** (topology 3).
-
-Until the lead exists, the node's side has nothing to join, and
-`smoking-pi fleet status` is the one Fleet command that does something.

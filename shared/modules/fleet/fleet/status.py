@@ -4,7 +4,10 @@
 loop that rewrites it stopped (what the Docker healthcheck runs). The
 container's health is the process's: a node that is revoked, whose
 certificate expired, or whose lead is away is measuring fine, and its
-agent is alive; that is ``lead_link``'s to say, in `fleet status`.
+agent is alive; that is ``lead_link``'s to say, in `fleet status`. The
+same for the lead: the file is rewritten by its idle loop, or, serving, by
+the gunicorn worker that answers nodes, so the check fails when no process
+serves; a fleet with silent nodes is `fleet nodes`' to say.
 The file holds only the fields :func:`snapshot` builds: never a secret.
 """
 
@@ -27,7 +30,9 @@ FIELDS = ("role", "state", "detail", "node_id", "node_name", "site_name", "lead_
           # The agent's, once enrolled (fleet/agent.py):
           "lead_link", "site_id", "lead_in_use", "last_heartbeat", "next_heartbeat",
           "failures", "last_error", "cert_not_after", "renew_after", "revoked_at",
-          "store_received")
+          "store_received",
+          # The lead's non-secret facts (fleet/lead.py, lead_facts).
+          "lead")
 
 #: ``lead_link``, the node's link to its lead: ``idle`` (not in a fleet),
 #: ``ok`` (enrolled, and a lead answered recently or the agent just

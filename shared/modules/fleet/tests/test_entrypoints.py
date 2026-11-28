@@ -97,9 +97,11 @@ def test_lead_states(tmp_path):
     report, line = lead.describe(cfg(FLEET_LEAD_MODE="dedicated"), paths)
     assert report["state"] == "no_fleet" and "no fleet initialized" in line
     assert report["lead_mode"] == "dedicated"
+    # A fleet file without the CA beside it is not a lead that can serve
+    # (tests/test_lead_admin.py has the serving states).
     write(paths.fleet, json.dumps({"fleet_id": FLEET}))
     report, line = lead.describe(cfg(), paths)
-    assert report["state"] == "initialized" and FLEET in line
+    assert report["state"] == "ca_broken" and FLEET in line and "nothing is served" in line
 
 
 @pytest.mark.parametrize("text", ["{broken", "[1]", "{}", json.dumps({"fleet_id": "x"})])

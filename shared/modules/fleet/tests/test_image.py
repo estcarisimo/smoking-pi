@@ -19,7 +19,8 @@ SHARED = MODULE.parents[1]          # the build context
 REPO = SHARED.parent
 DOCKERFILE = MODULE / "Dockerfile"
 WORKDIR = "/app"
-ENTRYPOINTS = ("fleet.agent", "fleet.lead", "fleet.status", "fleet.join", "fleet.leave")
+ENTRYPOINTS = ("fleet.agent", "fleet.lead", "fleet.status", "fleet.join", "fleet.leave",
+               "fleet.admin")
 LOCAL_TOPS = ("fleet", "common")
 
 
@@ -37,7 +38,7 @@ def declared() -> list[str]:
 
 
 #: Distribution name -> the top-level module it provides.
-IMPORT_NAMES = {"cryptography": "cryptography"}
+IMPORT_NAMES = {"cryptography": "cryptography", "gunicorn": "gunicorn"}
 
 
 def installed_tops() -> set[str]:
@@ -121,7 +122,8 @@ def closure() -> dict[str, Path]:
 
 def test_every_imported_module_is_copied_where_python_finds_it():
     found = closure()
-    assert {"fleet.agent", "fleet.lead", "fleet.status", "fleet.protocol"} <= set(found)
+    assert {"fleet.agent", "fleet.lead", "fleet.status", "fleet.protocol", "fleet.admin",
+            "fleet.service", "fleet.server", "fleet.pki", "fleet.registry"} <= set(found)
     for name, path in found.items():
         want = f"{WORKDIR}/{name.replace('.', '/')}"
         want += "/__init__.py" if path.name == "__init__.py" else ".py"
@@ -140,6 +142,40 @@ def test_the_protocol_stays_the_standard_library():
     for name in imports("fleet.protocol", path):
         top = name.split(".")[0]
         assert top in sys.stdlib_module_names or top == "fleet", name
+
+
+#: The lead's own modules: the node side never imports them.
+LEAD_ONLY = {"fleet.lead", "fleet.admin", "fleet.service", "fleet.server", "fleet.pki",
+             "fleet.registry"}
+NODE_SIDE = ("fleet.agent", "fleet.join", "fleet.leave", "fleet.status", "fleet.layout",
+             "fleet.protocol")
+
+
+def _module_closure(start: str) -> dict[str, Path]:
+    seen: dict[str, Path] = {}
+    todo = [start]
+    while todo:
+        name = todo.pop()
+        path = source_of(name)
+        if name in seen or path is None or not path.exists():
+            continue
+        seen[name] = path
+        todo.extend(imports(name, path))
+    return seen
+
+
+def test_the_node_side_imports_neither_gunicorn_nor_the_lead():
+    """The agent may use cryptography (chain.py, nodekeys.py); gunicorn and
+    the lead's modules are the lead's alone, and the lead entrypoint imports
+    gunicorn only when it serves."""
+    for start in NODE_SIDE:
+        found = _module_closure(start)
+        assert not set(found) & LEAD_ONLY, (start, set(found) & LEAD_ONLY)
+        for name, path in found.items():
+            tops = {i.split(".")[0] for i in imports(name, path)}
+            assert "gunicorn" not in tops, (start, name)
+    lead_tops = {i.split(".")[0] for i in imports("fleet.lead", MODULE / "fleet" / "lead.py")}
+    assert "gunicorn" not in lead_tops
 
 
 def test_the_copies_are_whole_directories():
