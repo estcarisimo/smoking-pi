@@ -34,7 +34,8 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      names, role (node, lead, both or none), the lead URLs,
                      whether the fleet agent is enrolled, and once it is: the
                      lead in use, the last heartbeat, the certificate's end,
-                     and a revoked, stopped or expired state.
+                     and a revoked, stopped or expired state; on a lead, what
+                     it serves.
   fleet join         Join a fleet (Pro, docs/fleet.md): paste the join string
                      that 'fleet token' printed on the lead, or pipe it in --
                      never as an argument (it holds a token). Checks the lead's
@@ -44,6 +45,24 @@ Usage: smoking-pi <command> [args]   (no command: what is installed and running)
                      Leave the fleet: tell the lead, remove the key and
                      certificate, turn the agent off. --force when no lead
                      answers. The measurements and their history stay.
+  fleet init --url URL [--url URL...] [--name NAME]
+                     Make this host a fleet's lead (Pro): create the fleet,
+                     its CA (a root and this lead's intermediate) and node
+                     registry, and turn the fleet-lead service on. URL: where
+                     nodes reach this lead (https, port FLEET_LEAD_PORT).
+  fleet token [--name NAME] [--site SITE] [--ttl 15m]
+                     On the lead: print a join string for one node, once
+                     (single use; --ttl up to 24h). --name/--site: file the
+                     node under these names whatever it calls itself.
+  fleet nodes [--json]
+                     On the lead: the enrolled nodes, their state, when each
+                     was last heard from, version and certificate expiry.
+  fleet revoke NODE  On the lead: cut a node off (its id, 8+ characters of it,
+                     or its name). Its next heartbeat is told to stop; only a
+                     new join string brings it back.
+  fleet ca status | offline-root FILE | restore-root FILE
+                     On the lead: the fleet CA; move the root key to FILE (0600)
+                     and off the lead once the copy is checked, or put it back.
   tunnel [status | start [--yes] | stop]
                      Cloudflare quick tunnels: public trycloudflare.com URLs
                      for the web pages, no account needed. Anyone with a URL

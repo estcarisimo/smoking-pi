@@ -15,7 +15,7 @@ WORKDIR /app
 # The dependencies pyproject.toml lists, at its pins (tests/test_image.py
 # checks the two agree). Binary wheels only: the slim image has no compiler,
 # and a source build would hide a missing wheel for one architecture.
-RUN pip install --no-cache-dir --only-binary :all: "cryptography==50.0.2"
+RUN pip install --no-cache-dir --only-binary :all: "cryptography==50.0.2" "gunicorn==27.0.1"
 
 COPY modules/common/ ./common/
 COPY modules/fleet/fleet/ ./fleet/

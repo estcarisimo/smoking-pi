@@ -282,4 +282,4 @@ def test_rate_limited_at_enroll_says_when_to_retry(paths):
     lead.answer("POST", LEAD + "/fleet/enroll", status_code, body)
     rc, result, err = run_join(join_string(lead.ca), paths, lead)
     assert rc == 1 and result["code"] == "rate_limited"
-    assert "try the same join again in 120 s" in err and node_files(paths) == []
+    assert "or retry in 120 s" in err and node_files(paths) == []

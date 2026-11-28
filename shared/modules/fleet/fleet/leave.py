@@ -4,9 +4,10 @@ Run by ``smoking-pi fleet leave`` inside the fleet image, after the command
 has stopped the agent (so the two never write the same files). Best effort
 toward the lead: ``POST /fleet/leave`` over mTLS to each lead in order; if
 none answers, nothing is removed unless ``--force`` (the lead then keeps
-listing the node until its operator removes it). Then every file of the
-enrollment is removed: key, chain, root, store token, ``enrollment.json``.
-The node's measurements live elsewhere and are never touched.
+listing the node until its operator revokes it with ``smoking-pi fleet
+revoke`` on the lead). Then every file of the enrollment is removed: key,
+chain, root, store token, ``enrollment.json``. The node's measurements live
+elsewhere and are never touched.
 
 A revoked node is not announced (the lead already has it out). A corrupt
 enrollment, another node's, or an expired certificate cannot speak to the
@@ -46,7 +47,8 @@ def leave(cfg: settings.Settings, paths: NodePaths, transport: Transport, force:
         if not force:
             say(f"This node cannot tell the lead it leaves: {why}. Nothing was removed. "
                 "'smoking-pi fleet leave --force' removes the enrollment here anyway; the "
-                "lead keeps listing the node until its operator removes it.")
+                "lead keeps listing the node until its operator revokes it ('smoking-pi "
+                "fleet revoke' on the lead).")
             return 1, {"left": False, "told_lead": False}
         nodestate.remove_all(paths)
         say(f"Enrollment removed here ({why}); the lead was not told.")
@@ -65,7 +67,8 @@ def leave(cfg: settings.Settings, paths: NodePaths, transport: Transport, force:
         what = (f"the lead answered '{out.code}'" if out.code else "no lead answered")
         say(f"The node could not tell the lead it leaves ({what}). Nothing was removed. "
             "Try again, or 'smoking-pi fleet leave --force' to leave anyway: the lead then "
-            "keeps listing this node until its operator removes it.")
+            "keeps listing this node until its operator revokes it ('smoking-pi fleet "
+            "revoke' on the lead).")
         return 1, {"left": False, "told_lead": False}
     nodestate.remove_all(paths)
     fleet = local.enrollment.get("fleet_id", "?")
@@ -73,7 +76,8 @@ def leave(cfg: settings.Settings, paths: NodePaths, transport: Transport, force:
         say(f"Left fleet {fleet}: the lead was told, and the key and certificate are removed.")
     else:
         say(f"Left fleet {fleet} without telling the lead (--force): the key and certificate "
-            "are removed here; the lead keeps listing this node until its operator removes it.")
+            "are removed here; the lead keeps listing this node until its operator revokes "
+            "it ('smoking-pi fleet revoke' on the lead).")
     return 0, {"left": True, "told_lead": told}
 
 

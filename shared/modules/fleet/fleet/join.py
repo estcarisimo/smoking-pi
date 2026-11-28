@@ -121,12 +121,13 @@ _ENROLL_REFUSALS = {
     "token_invalid": ("The lead refused the join token: unknown, already used, or expired. "
                       "Ask for a new join string ('smoking-pi fleet token' on the lead)."),
     "node_exists": ("The lead already has a node with this node id ({node}). If it is this "
-                    "installation from an earlier join, remove it on the lead first, then "
-                    "join with a new join string."),
+                    "installation from an earlier join, release it on the lead first "
+                    "('smoking-pi fleet revoke {node}' there), then join with a new join "
+                    "string."),
     "duplicate_node": ("The lead sees two installations using this node id ({node}); see "
                        "docs/fleet.md, \"Two installations, one node id\"."),
-    "revoked": ("The lead has this node id ({node}) as revoked; its operator must remove "
-                "it before it can join again."),
+    "revoked": ("The lead refused this node id ({node}) as revoked. Ask its operator for "
+                "a new join string ('smoking-pi fleet token' on the lead)."),
     "protocol_unsupported": ("The lead speaks no protocol version in common with this node. "
                              "Upgrade the older side."),
     "bad_request": "The lead did not understand the request (a bug: see the lead's log).",
@@ -158,7 +159,8 @@ def enroll(js: protocol.JoinString, cfg: settings.Settings, paths: NodePaths,
         raise JoinFailed("write_failed",
                          f"The node could not write its enrollment ({type(err).__name__}). "
                          "Nothing was kept. If the lead enrolled it already, ask its "
-                         "operator to remove this node before joining again.") from None
+                         "operator to release this node ('smoking-pi fleet revoke' on the lead) "
+                         "before joining again.") from None
     finally:
         if not joined:
             nodestate.remove_all(paths)
@@ -207,10 +209,12 @@ def _post_enroll(js, first, request, paths, transport, cfg):
                 after = err.body.retry_after if err.body is not None else None
                 wait = f"in {after} s" if after else "in a few minutes"
                 raise JoinFailed("rate_limited",
-                                 f"The lead at {url} is limiting join attempts. Nothing was "
-                                 f"changed; try the same join again {wait}. If it is refused "
-                                 "again, the token may be wrong or used: ask for a new join "
-                                 "string.") from None
+                                 f"The lead at {url} refused the token and is slowing down "
+                                 "this address (it sent several invalid join tokens). Nothing "
+                                 "was changed. The token is most likely wrong, used or "
+                                 "expired: ask for a new join string ('smoking-pi fleet token' "
+                                 f"on the lead); a valid one is accepted at once, or retry "
+                                 f"{wait}.") from None
             busy.append(f"{url}: {err.code}")
     if busy:
         raise JoinFailed("lead_unavailable",
@@ -239,8 +243,8 @@ def _accept(js, cfg, paths, key, root, resp: protocol.EnrollResponse, url, now) 
     except chain.ChainError as err:
         raise JoinFailed("chain_invalid",
                          f"REFUSED: {err.reason}. Nothing was kept. The lead has probably "
-                         "recorded this node: ask its operator to remove it, and for a new "
-                         "join string.") from None
+                         "recorded this node: ask its operator to release it ('smoking-pi "
+                         "fleet revoke' on the lead) and for a new join string.") from None
     endpoints = resp.lead_endpoints
     enrollment = {
         "node_id": cfg.node_id, "fleet_id": resp.fleet_id, "site_id": resp.site_id,

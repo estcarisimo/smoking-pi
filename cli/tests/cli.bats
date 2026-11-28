@@ -72,6 +72,16 @@ case "$*" in
         cat >> "$DOCKER_LOG.fleet-stdin"
         printf '%s\n' "${STUB_FLEET_RESULT:-}"
         exit "${STUB_FLEET_RC:-0}" ;;
+    # The fleet lead: its status (STUB_FLEET_LEAD; unset = not running),
+    # whether it runs (STUB_FLEET_LEAD_ID; unset = no), and its admin
+    # command: stdout STUB_FLEET_ADMIN_OUT, stderr STUB_FLEET_ADMIN_ERR,
+    # exit STUB_FLEET_ADMIN_RC; the root-key commands' stdin is kept.
+    *"exec -T fleet-lead python -m fleet.status"*) [ -n "${STUB_FLEET_LEAD:-}" ] || exit 1; printf '%b' "$STUB_FLEET_LEAD" ;;
+    *"ps -q --status running fleet-lead"*) printf '%b' "${STUB_FLEET_LEAD_ID:-}" ;;
+    *"python -m fleet.admin"*)
+        case "$*" in *-root-key*) cat >> "$DOCKER_LOG.stdin" ;; esac
+        printf '%b' "${STUB_FLEET_ADMIN_OUT:-}"; printf '%b' "${STUB_FLEET_ADMIN_ERR:-}" >&2
+        exit "${STUB_FLEET_ADMIN_RC:-0}" ;;
     *"exec -T postgres pg_dumpall"*) echo "-- dump" ;;
     # Quick tunnels: labeled ones as "page name" (STUB_TUNNELS), every
     # container name (STUB_NAMES), and a log with two hostnames, the
@@ -5087,10 +5097,10 @@ assert d["fleet_id"] == "0b1e2f3a-0000-4000-8000-000000000001", d
     [ "$status" -eq 1 ]
 }
 
-@test "fleet: Pro only, status, join and leave, help reads nothing" {
+@test "fleet: Pro only, every subcommand known, help reads nothing" {
     run "$CLI" fleet promote
     [ "$status" -eq 2 ]
-    [[ "$output" == *"unknown fleet command: promote (this release has: status, join, leave)"* ]]
+    [[ "$output" == *"unknown fleet command: promote (one of: status, join, leave, init, token, nodes, revoke, ca)"* ]]
     run "$CLI" fleet
     [ "$status" -eq 0 ]
     [[ "$output" == *"fleet status [--json]"* ]]
@@ -5242,4 +5252,142 @@ assert d["agent_lead_urls"] == ["https://b.example", "https://a.example"], d
     run "$CLI" config set FLEET_LEAD_MODE dedicated --no-apply
     [ "$status" -eq 0 ]
     grep -qx 'FLEET_LEAD_MODE=dedicated' "$SMOKING_PI_ENV_FILE"
+}
+
+# --- fleet: the lead's commands --------------------------------------------------
+
+FLEET_MADE='{"fleet_id": "0b1e2f3a-0000-4000-8000-000000000001", "lead_id": "0b1e2f3a-0000-4000-8000-000000000002", "name": "Home", "created_at": "2026-11-27T12:00:00Z", "root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'
+
+@test "fleet init asks where nodes reach the lead, then creates the fleet and turns the lead on" {
+    run "$CLI" fleet init
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"fleet init --url https://192.0.2.10:8443"* ]]
+    if grep -q 'fleet.admin' "$DOCKER_LOG"; then false; fi
+    export STUB_FLEET_ADMIN_OUT="$FLEET_MADE"
+    run "$CLI" fleet init --url https://lead.example:8443 --url https://192.0.2.10:8443 --name Home
+    [ "$status" -eq 0 ]
+    # Not running: a one-off container, told the URLs directly.
+    compose_calls | grep -q 'run --rm --no-deps -T -e FLEET_LEAD_URLS=https://lead.example:8443,https://192.0.2.10:8443 fleet-lead python -m fleet.admin init --name Home'
+    grep -qx 'FLEET_LEAD_URLS=https://lead.example:8443,https://192.0.2.10:8443' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'COMPOSE_PROFILES=influxdb,mcp,fleet-lead' "$SMOKING_PI_ENV_FILE"
+    grep -q '^FLEET_NODE_ID=' "$SMOKING_PI_ENV_FILE"
+    [[ "$output" == *"Created fleet 0b1e2f3a-0000-4000-8000-000000000001 (Home)"* ]]
+    [[ "$output" == *"fleet token"* ]]
+    [[ "$output" == *"fleet ca offline-root FILE"* ]]
+    compose_calls | grep -q 'up -d --remove-orphans'
+}
+
+@test "fleet init that the lead refuses changes nothing in the env file" {
+    export STUB_FLEET_ADMIN_RC=1 STUB_FLEET_ADMIN_ERR='A fleet is already initialized here (x).\n'
+    run "$CLI" fleet init --url https://lead.example:8443
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"already initialized"* ]]
+    if grep -q '^FLEET_LEAD_URLS=' "$SMOKING_PI_ENV_FILE"; then false; fi
+    grep -qx 'COMPOSE_PROFILES=influxdb,mcp' "$SMOKING_PI_ENV_FILE"
+    run "$CLI" fleet init --url "https://lead.example:8443/it's"
+    [ "$status" -eq 2 ]
+}
+
+@test "fleet init on a running lead runs inside it and recreates it with the new URLs" {
+    printf 'COMPOSE_PROFILES=influxdb,fleet-lead\nFLEET_LEAD_URLS=https://pi.example:8443\nFLEET_NODE_ID=6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b\n' > "$SMOKING_PI_ENV_FILE"
+    export STUB_FLEET_LEAD_ID=abc123 STUB_FLEET_ADMIN_OUT="$FLEET_MADE"
+    run "$CLI" fleet init
+    [ "$status" -eq 0 ]
+    compose_calls | grep -q 'exec -T -e FLEET_LEAD_URLS=https://pi.example:8443 fleet-lead python -m fleet.admin init --name fleet'
+    compose_calls | grep -q 'up -d --no-deps --force-recreate fleet-lead'
+}
+
+@test "fleet token prints the join string alone on stdout, once" {
+    export STUB_FLEET_ADMIN_OUT='spfleet1_eyJmbGVldCI6IngifQ\n'
+    export STUB_FLEET_ADMIN_ERR='{"token_id": "1a2b3c4d", "expires_at": "2026-11-27T14:00:00Z", "node_name": "Office Pi", "site_name": null}\n'
+    run bash -c "'$CLI' fleet token --name 'Office Pi' --ttl 2h 2>/dev/null"
+    [ "$status" -eq 0 ]
+    [ "$output" = "spfleet1_eyJmbGVldCI6IngifQ" ]
+    compose_calls | grep -q 'fleet.admin token --name Office Pi --ttl 2h'
+    run "$CLI" fleet token
+    [[ "$output" == *"expires 2026-11-27T14:00:00Z"* ]]
+    [[ "$output" == *"the lead is off"* ]]
+    [ "$(grep -c '^spfleet1_' <<<"$output")" -eq 1 ]
+    run "$CLI" fleet token --bogus
+    [ "$status" -eq 2 ]
+    export STUB_FLEET_ADMIN_RC=1 STUB_FLEET_ADMIN_OUT='' STUB_FLEET_ADMIN_ERR='No fleet is initialized on this lead: smoking-pi fleet init\n'
+    run "$CLI" fleet token
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"No fleet is initialized"* ]]
+}
+
+@test "fleet nodes and revoke ask the lead, and check their arguments" {
+    export STUB_FLEET_ADMIN_OUT='[]\n'
+    run "$CLI" fleet nodes --json
+    [ "$status" -eq 0 ]
+    compose_calls | grep -q 'fleet-lead python -m fleet.admin nodes --json'
+    run "$CLI" fleet nodes --all
+    [ "$status" -eq 2 ]
+    run "$CLI" fleet revoke
+    [ "$status" -eq 2 ]
+    export STUB_FLEET_ADMIN_OUT='Revoked node 6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b (Kitchen Pi).\n'
+    run "$CLI" fleet revoke "Kitchen Pi"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Revoked node"* ]]
+    compose_calls | grep -q 'fleet.admin revoke Kitchen Pi'
+}
+
+@test "fleet ca offline-root refuses a RAM-backed path: the only copy would vanish at reboot" {
+    export STUB_FLEET_ADMIN_OUT='-----BEGIN PRIVATE KEY-----\nMIGHAgEA\n-----END PRIVATE KEY-----\n'
+    for f in /dev/shm/fleet-root.pem /run/fleet-root.pem /tmp/fleet-root-$$.pem; do
+        run "$CLI" fleet ca offline-root "$f"
+        [ "$status" -eq 1 ]
+        [[ "$output" == *"RAM-backed"* ]]
+        [ ! -e "$f" ]
+    done
+    if grep -q 'fleet.admin' "$DOCKER_LOG"; then false; fi
+}
+
+@test "fleet ca offline-root writes the key 0600 and removes it only after the lead checked the copy" {
+    # The test's scratch directory is under /tmp, which the command refuses.
+    export FLEET_TMPFS_CHECK=off
+    key="$BATS_TEST_TMPDIR/root-key.pem"
+    export STUB_FLEET_ADMIN_OUT='-----BEGIN PRIVATE KEY-----\nMIGHAgEA\n-----END PRIVATE KEY-----\n'
+    run "$CLI" fleet ca offline-root "$key"
+    [ "$status" -eq 0 ]
+    [ "$(stat -c %a "$key")" = 600 ]
+    grep -q 'BEGIN PRIVATE KEY' "$key"
+    compose_calls | grep -n 'fleet.admin ca' | grep -q 'export-root-key'
+    [ "$(compose_calls | grep 'fleet.admin ca' | tail -1 | grep -c remove-root-key)" -eq 1 ]
+    grep -q 'BEGIN PRIVATE KEY' "$DOCKER_LOG.stdin"
+    # Never over an existing file.
+    run "$CLI" fleet ca offline-root "$key"
+    [ "$status" -eq 1 ]
+    # An export that fails leaves no file behind.
+    export STUB_FLEET_ADMIN_RC=1
+    run "$CLI" fleet ca offline-root "$BATS_TEST_TMPDIR/other.pem"
+    [ "$status" -eq 1 ]
+    [ ! -e "$BATS_TEST_TMPDIR/other.pem" ]
+    run "$CLI" fleet ca bogus
+    [ "$status" -eq 2 ]
+}
+
+@test "fleet status shows what the lead serves" {
+    printf 'COMPOSE_PROFILES=influxdb,fleet-lead\nFLEET_NODE_ID=6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b\nFLEET_LEAD_PORT=9443\n' > "$SMOKING_PI_ENV_FILE"
+    run "$CLI" fleet status
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"lead:       not running (smoking-pi up)"* ]]
+    export STUB_FLEET_LEAD='{"role": "lead", "state": "serving", "fleet_id": "0b1e2f3a-0000-4000-8000-000000000001", "lead": {"fleet_name": "Home", "nodes": {"active": 2, "revoked": 1}, "root_key_online": true}}'
+    run "$CLI" fleet status
+    [[ "$output" == *"lead:       serving fleet 0b1e2f3a-0000-4000-8000-000000000001 (Home) on port 9443: 2 active, 1 revoked"* ]]
+    [[ "$output" == *"root key:   on this lead; take it offline: smoking-pi fleet ca offline-root FILE"* ]]
+    run bash -c "'$CLI' fleet status --json 2>/dev/null"
+    echo "$output" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["lead"]["state"] == "serving" and d["lead"]["nodes"] == {"active": 2, "revoked": 1}, d
+assert d["lead"]["port"] == 9443 and d["lead"]["root_key_online"] is True, d
+'
+    export STUB_FLEET_LEAD='{"role": "lead", "state": "no_fleet", "lead": null}'
+    run "$CLI" fleet status
+    [[ "$output" == *"lead:       no fleet yet (smoking-pi fleet init --url https://<this host>:9443)"* ]]
+    # Not a lead: no lead line, and null in JSON.
+    printf 'COMPOSE_PROFILES=influxdb\nFLEET_NODE_ID=6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b\n' > "$SMOKING_PI_ENV_FILE"
+    run bash -c "'$CLI' fleet status --json 2>/dev/null"
+    echo "$output" | python3 -c 'import json,sys; assert json.load(sys.stdin)["lead"] is None'
 }

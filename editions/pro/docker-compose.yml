@@ -753,9 +753,11 @@ services:
         required: false
 
   # Fleet (docs/fleet.md): several Smoking Pi installations reporting to
-  # one lead. One image, two services, both off by default. The agent is
-  # never in the measurement path: whatever it does, nothing else here
-  # waits on it. `smoking-pi fleet status` shows where it stands.
+  # one lead. One image, two services, both off by default. The lead
+  # serves nodes once `smoking-pi fleet init` created a fleet, and idles
+  # without one. The agent is never in the measurement path: whatever it
+  # does, nothing else here waits on it. `smoking-pi fleet status` shows
+  # where it stands.
   #
   # The node agent (opt-in: `smoking-pi fleet join`, which turns it on).
   # Idle until the node joins; then heartbeats over mutual TLS to the leads
@@ -794,10 +796,14 @@ services:
       # the secrets live").
       - fleet-agent-state:/var/lib/fleet
 
-  # The lead (opt-in: `smoking-pi enable fleet-lead`): the fleet's CA, its
-  # node registry and, later, the store nodes replicate to. FLEET_LEAD_MODE
+  # The lead (opt-in: `smoking-pi fleet init` turns it on): the fleet's CA,
+  # its node registry, the HTTPS endpoints nodes enroll and heartbeat at
+  # (mutual TLS) and, later, the store nodes replicate to. FLEET_LEAD_MODE
   # says whether this host also measures as a node (`node`, the default:
-  # enable `fleet` too) or only leads (`dedicated`).
+  # enable `fleet` too) or only leads (`dedicated`). Nodes always connect
+  # to it, never the reverse: the one port is FLEET_LEAD_PORT. Docker
+  # publishes it whenever the service is on; with no fleet initialized the
+  # lead does not listen behind it, so connections there are reset.
   fleet-lead:
     build:
       context: ../../shared
@@ -818,7 +824,11 @@ services:
       - FLEET_LEAD_URLS=${FLEET_LEAD_URLS:-}
       - FLEET_LEAD_MODE=${FLEET_LEAD_MODE:-node}
       - TZ=${TZ:-UTC}
+    ports:
+      - "0.0.0.0:${FLEET_LEAD_PORT:-8443}:8443"
     volumes:
+      # The CA (the root key until it is taken offline), the registry and
+      # the server certificate (docs/fleet.md, "Where the secrets live").
       - fleet-lead-state:/var/lib/fleet
 
   # The Pi's name on the LAN: answers for <MDNS_NAME>.local (default

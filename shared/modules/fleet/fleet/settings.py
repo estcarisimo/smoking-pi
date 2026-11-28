@@ -18,6 +18,9 @@ from .protocol import valid_https_url, valid_name
 LEAD_MODES = ("dedicated", "node")
 DEFAULT_LEAD_MODE = "node"
 DEFAULT_SITE_NAME = "default"
+#: The port the lead listens on inside its container; the host side is
+#: FLEET_LEAD_PORT (docker-compose.yml publishes one on the other).
+LEAD_LISTEN_PORT = 8443
 
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", re.ASCII)
 

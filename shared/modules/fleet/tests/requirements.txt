@@ -1,3 +1,6 @@
-# The fleet module needs cryptography (pyproject.toml); the tests need pytest.
+# The fleet module's dependencies (pyproject.toml, same pins); the tests need
+# pytest. gunicorn is the lead's server: the tests build its TLS context,
+# never start it.
 pytest
 cryptography==50.0.2
+gunicorn==27.0.1

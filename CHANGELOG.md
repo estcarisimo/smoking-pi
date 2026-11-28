@@ -48,7 +48,7 @@ version gets a matching GitHub release and git tag.
   Pis still had to look at each one, and the agent that would talk to a lead
   had to be written so that a lead that goes away, lies, or revokes the node
   can never cost the node a measurement or leak its key. This adds the
-  agent (it needs a lead to join; the lead is the next piece):
+  agent (it needs a lead to join; the lead is the entry below):
   - **`smoking-pi fleet join`** reads the join string from the terminal
     (not echoed) or stdin, never from an argument, which every user sees
     in `ps`; it runs the enrollment in the fleet image, where the key is
@@ -79,6 +79,48 @@ version gets a matching GitHub release and git tag.
   The fleet image now installs `cryptography` (the protocol stays the
   standard library only). Heartbeats do not report the doctor's counts,
   measurement freshness or the uplink yet, and nothing is replicated.
+- **Fleet, the lead: a fleet, its CA, its registry and its endpoints.**
+  The protocol existed, and the node could join, but nothing could speak
+  the protocol from the lead's side: no fleet could be created and no node
+  could be issued a credential, so `fleet join` had nothing to join. Done
+  carelessly, this is the piece that decides whether a stolen join string,
+  a cloned SD card or a compromised lead becomes a compromised fleet. This
+  adds the lead:
+  - **`smoking-pi fleet init --url …`** creates the fleet: its id, a private
+    CA made of a **root** (it signs only intermediates, and
+    **`fleet ca offline-root FILE`** moves its key off the lead once the copy
+    is flushed to disk and checked; the serving lead never loads it) and
+    **this lead's intermediate**, which signs node
+    certificates and the lead's own TLS certificate for the hosts of
+    `FLEET_LEAD_URLS`; then it turns the `fleet-lead` service on. All keys
+    are P-256, written 0600 in the `fleet-lead-state` volume;
+  - **`fleet token`** prints a join string once (URLs, fleet id, root
+    fingerprint, a single-use token that expires in 15 minutes by default;
+    the lead keeps its SHA-256 only), optionally binding the node's name and
+    site; **`fleet nodes`** lists the registry; **`fleet revoke`** cuts a
+    node off; `fleet status` shows what the lead serves;
+  - the lead serves the protocol's five routes over HTTPS (gunicorn,
+    `gthread`, client certificates verified against the root): enrollment
+    checks the token, refuses a second installation of a node id that holds
+    a live certificate (`node_exists`; one whose certificates all expired
+    may join again) and validates the certificate request (P-256, signature,
+    no other node's id) before signing a 90-day client certificate sent as
+    a chain; heartbeat, renew and leave require a certificate the registry
+    knows, for that node id, unrevoked, looked up on every request.
+    Heartbeats are recorded and answered with `revoked`, `lead_endpoints`
+    and `renew_now` directives as due; a replaced instance that speaks again
+    is `duplicate_node`. A valid join token always enrolls; an address that
+    sent five invalid ones in 15 minutes gets `rate_limited` for its
+    further invalid ones, and nothing ever locks enrollment out. Every error
+    is the protocol's fixed sentence plus an `error_id`;
+  - new setting `FLEET_LEAD_PORT` (8443): the one port the lead uses.
+    Docker publishes it whenever the `fleet-lead` service is on; before
+    `fleet init` nothing listens behind it, so connections there are reset.
+    The image now also installs `gunicorn` (pinned, like `cryptography`).
+  Not built: renewing the intermediate or rotating the root, moving the
+  lead role or adding a second lead (the CA layout and signing step are
+  ready, the commands are not), and the data plane: enrollment answers
+  `store: null`, "no store yet", as the protocol already defines.
 
 ## [2.55.0] — 2026-11-26
 
