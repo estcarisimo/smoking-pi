@@ -10,6 +10,8 @@ import pytest
 from fleet import agent, lead, runner, settings, status
 from fleet.layout import lead_paths, node_paths
 
+from fakelead import enrolled
+
 NODE = "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b"
 FLEET = "0b1e2f3a-0000-4000-8000-000000000001"
 
@@ -31,10 +33,20 @@ def write(path, text):
 
 def test_agent_enrolled(tmp_path):
     paths = node_paths(tmp_path)
-    write(paths.enrollment, json.dumps({"node_id": NODE, "fleet_id": FLEET}))
+    enrolled(paths)
     report, line = agent.describe(cfg(), paths)
     assert report["state"] == "enrolled" and report["fleet_id"] == FLEET
-    assert FLEET in line
+    assert FLEET in line and report["health"] == "ok" and report["cert_not_after"]
+
+
+def test_an_enrollment_without_its_credentials_is_corrupt(tmp_path):
+    """enrollment.json alone (a volume restored in part, a hand edit): the
+    agent cannot speak for the node, and says so instead of trying."""
+    paths = node_paths(tmp_path)
+    write(paths.enrollment, json.dumps({"node_id": NODE, "fleet_id": FLEET}))
+    report, line = agent.describe(cfg(), paths)
+    assert report["state"] == "state_corrupt" and report["enrolled"] is False
+    assert report["health"] == "failing" and "fleet leave --force" in line
 
 
 @pytest.mark.parametrize("text", ["{broken", "[]", "null", "42", '"x"', "{}",
@@ -134,12 +146,19 @@ def test_main_runs_until_stopped(monkeypatch):
     monkeypatch.setenv("FLEET_NODE_ID", NODE)
     monkeypatch.setattr(runner, "run", lambda report, line, problems=(): calls.update(
         report=report, line=line, problems=problems))
-    assert agent.main() == 0 and calls["report"]["role"] == "agent"
     assert lead.main() == 0 and calls["report"]["role"] == "lead"
+    stop = threading.Event()
+    stop.set()  # one turn, then out
+    assert agent.main(stop=stop) == 0
+    assert status.read()["role"] == "agent" and status.read()["state"] == "not_enrolled"
 
 
 def test_health():
     assert not status.healthy({})
+    # Enrolled and failing is unhealthy; not in a fleet is not.
+    assert status.healthy({"at": 1000.0, "health": "idle"}, now=1000.0)
+    assert status.healthy({"at": 1000.0, "health": "ok"}, now=1000.0)
+    assert not status.healthy({"at": 1000.0, "health": "failing"}, now=1000.0)
     assert status.healthy({"at": 1000.0}, now=1000.0 + 3 * status.TICK_SECONDS)
     assert not status.healthy({"at": 1000.0}, now=1001.0 + 3 * status.TICK_SECONDS)
     assert status.main(["--check"]) == 1

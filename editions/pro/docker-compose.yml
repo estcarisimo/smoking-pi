@@ -753,14 +753,15 @@ services:
         required: false
 
   # Fleet (docs/fleet.md): several Smoking Pi installations reporting to
-  # one lead. One image, two services, both off by default. In this release
-  # both only read their settings and identity, log their state ("not
-  # enrolled", "no fleet initialized") and idle: no port, no network call.
-  # The agent is never in the measurement path: whatever it does, nothing
-  # else here waits on it. `smoking-pi fleet status` shows where it stands.
+  # one lead. One image, two services, both off by default. The agent is
+  # never in the measurement path: whatever it does, nothing else here
+  # waits on it. `smoking-pi fleet status` shows where it stands.
   #
-  # The node agent (opt-in: `smoking-pi enable fleet`). It always opens the
-  # connection (outbound HTTPS to FLEET_LEAD_URLS), so it works behind NAT.
+  # The node agent (opt-in: `smoking-pi fleet join`, which turns it on).
+  # Idle until the node joins; then heartbeats over mutual TLS to the leads
+  # it holds. It always opens the connection (outbound HTTPS), so it works
+  # behind NAT, and it opens no port. `fleet join` and `fleet leave` run
+  # this same service once (`compose run`) to enroll and to clean up.
   fleet-agent:
     build:
       # Context is `shared/` so the image can copy shared/modules/common.
@@ -783,6 +784,10 @@ services:
       - FLEET_NODE_NAME=${FLEET_NODE_NAME:-}
       - FLEET_SITE_NAME=${FLEET_SITE_NAME:-}
       - FLEET_LEAD_URLS=${FLEET_LEAD_URLS:-}
+      # What a heartbeat reports: the release (the image tag the command
+      # chose) and the enabled profiles. Read, never set, by the agent.
+      - SMOKING_PI_VERSION=${SMOKING_PI_VERSION:-dev}
+      - COMPOSE_PROFILES=${COMPOSE_PROFILES:-}
       - TZ=${TZ:-UTC}
     volumes:
       # Its key, certificate chain and enrollment (docs/fleet.md, "Where

@@ -5,11 +5,13 @@ until the image crash-looped (v2.13.5). This reads the Dockerfile's COPY
 lines, follows the imports of every entrypoint (the CMD, the lead's compose
 command, the healthcheck) through the package, and fails when one resolves
 to a file no COPY puts at the path Python will look for it, or to a
-third-party package the image does not install (it installs none)."""
+third-party package the image does not install. The image installs exactly
+pyproject.toml's dependencies, at the same pins."""
 
 import ast
 import re
 import sys
+import tomllib
 from pathlib import Path
 
 MODULE = Path(__file__).resolve().parents[1]
@@ -17,8 +19,29 @@ SHARED = MODULE.parents[1]          # the build context
 REPO = SHARED.parent
 DOCKERFILE = MODULE / "Dockerfile"
 WORKDIR = "/app"
-ENTRYPOINTS = ("fleet.agent", "fleet.lead", "fleet.status")
+ENTRYPOINTS = ("fleet.agent", "fleet.lead", "fleet.status", "fleet.join", "fleet.leave")
 LOCAL_TOPS = ("fleet", "common")
+
+
+def installed() -> list[str]:
+    """The requirement strings the Dockerfile's `pip install` lines name."""
+    out = []
+    for line in DOCKERFILE.read_text().splitlines():
+        if re.match(r"^RUN pip install ", line):
+            out += re.findall(r'"([A-Za-z0-9_.-]+[=<>!~][^"]*)"', line)
+    return out
+
+
+def declared() -> list[str]:
+    return tomllib.loads((MODULE / "pyproject.toml").read_text())["project"]["dependencies"]
+
+
+#: Distribution name -> the top-level module it provides.
+IMPORT_NAMES = {"cryptography": "cryptography"}
+
+
+def installed_tops() -> set[str]:
+    return {IMPORT_NAMES[re.split(r"[=<>!~\[]", r)[0].lower()] for r in installed()}
 
 
 def copies() -> list[tuple[Path, str]]:
@@ -84,8 +107,8 @@ def closure() -> dict[str, Path]:
         path = source_of(name)
         if path is None:
             top = name.split(".")[0]
-            assert top in sys.stdlib_module_names, (
-                f"{name} is not the standard library, and the image installs nothing")
+            assert top in sys.stdlib_module_names or top in installed_tops(), (
+                f"{name} is neither the standard library nor installed by the Dockerfile")
             continue
         assert path.exists(), f"{name} is imported but {path} does not exist"
         seen[name] = path
@@ -103,6 +126,20 @@ def test_every_imported_module_is_copied_where_python_finds_it():
         want = f"{WORKDIR}/{name.replace('.', '/')}"
         want += "/__init__.py" if path.name == "__init__.py" else ".py"
         assert image_path(path) == want, f"{name} ({path}) is not copied to {want}"
+
+
+def test_the_image_installs_exactly_what_pyproject_declares():
+    assert installed() == declared(), "Dockerfile and pyproject.toml disagree"
+    for req in declared():
+        assert "==" in req, f"{req}: pin it, in both files"
+
+
+def test_the_protocol_stays_the_standard_library():
+    """The contract must stay readable by anything: no third-party import."""
+    path = MODULE / "fleet" / "protocol.py"
+    for name in imports("fleet.protocol", path):
+        top = name.split(".")[0]
+        assert top in sys.stdlib_module_names or top == "fleet", name
 
 
 def test_the_copies_are_whole_directories():

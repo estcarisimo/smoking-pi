@@ -65,6 +65,13 @@ case "$*" in
     *"exec -T mdns python status.py --json"*) [ -n "${STUB_MDNS:-}" ] || exit 1; printf '%b' "$STUB_MDNS" ;;
     # The fleet agent's status (STUB_FLEET_AGENT; unset = not running).
     *"exec -T fleet-agent python -m fleet.status"*) [ -n "${STUB_FLEET_AGENT:-}" ] || exit 1; printf '%b' "$STUB_FLEET_AGENT" ;;
+    # `fleet join` / `fleet leave` in a one-off agent container: stdin kept
+    # in $DOCKER_LOG.fleet-stdin, the result STUB_FLEET_RESULT, the exit
+    # status STUB_FLEET_RC (unset = 0).
+    *"run --rm --no-deps -T fleet-agent python -m fleet."*)
+        cat >> "$DOCKER_LOG.fleet-stdin"
+        printf '%s\n' "${STUB_FLEET_RESULT:-}"
+        exit "${STUB_FLEET_RC:-0}" ;;
     *"exec -T postgres pg_dumpall"*) echo "-- dump" ;;
     # Quick tunnels: labeled ones as "page name" (STUB_TUNNELS), every
     # container name (STUB_NAMES), and a log with two hostnames, the
@@ -5016,7 +5023,7 @@ FLEET_ID_RE='^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12
     [[ "$output" == *"site:       default"* ]]
     [[ "$output" == *"role:       none (Fleet is off: smoking-pi enable fleet)"* ]]
     [[ "$output" == *"leads:      none set"* ]]
-    [[ "$output" == *"Joining a fleet is not built yet"* ]]
+    [[ "$output" == *"Join a fleet: smoking-pi fleet join"* ]]
     run "$CLI" fleet status
     [ "$status" -eq 0 ]
     [[ "$output" != *"Created"* ]]
@@ -5080,10 +5087,10 @@ assert d["fleet_id"] == "0b1e2f3a-0000-4000-8000-000000000001", d
     [ "$status" -eq 1 ]
 }
 
-@test "fleet: Pro only, status is the one subcommand, help reads nothing" {
-    run "$CLI" fleet join spfleet1_abc
+@test "fleet: Pro only, status, join and leave, help reads nothing" {
+    run "$CLI" fleet promote
     [ "$status" -eq 2 ]
-    [[ "$output" == *"unknown fleet command: join (this release has: status)"* ]]
+    [[ "$output" == *"unknown fleet command: promote (this release has: status, join, leave)"* ]]
     run "$CLI" fleet
     [ "$status" -eq 0 ]
     [[ "$output" == *"fleet status [--json]"* ]]
@@ -5097,6 +5104,111 @@ assert d["fleet_id"] == "0b1e2f3a-0000-4000-8000-000000000001", d
     [ "$status" -eq 2 ]
     [[ "$output" == *"Fleet is part of the Pro edition"* ]]
     if grep -q '^FLEET_NODE_ID=' "$SMOKING_PI_ENV_FILE"; then false; fi
+}
+
+@test "fleet join: the join string from stdin to the container, never an argument; leads recorded, agent on" {
+    printf 'COMPOSE_PROFILES=influxdb,mcp\nFLEET_NODE_ID=6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b\n' > "$SMOKING_PI_ENV_FILE"
+    # As an argument it would show in `ps` and the shell's history: refused.
+    run "$CLI" fleet join spfleet1_SECRETTOKENxyz
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"Not as an argument"* ]]
+    if grep -q 'fleet.join' "$DOCKER_LOG"; then false; fi
+    export STUB_FLEET_RESULT='{"joined": true, "fleet_id": "0b1e2f3a-0000-4000-8000-000000000001", "site_id": "5e1e0000-0000-4000-8000-0000000000a1", "node_id": "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b", "lead_urls": ["https://a.example:8443", "https://b.example"], "lead_in_use": "https://a.example:8443", "not_after": "2027-02-25T12:00:00Z", "store_received": false}'
+    run bash -c "printf 'spfleet1_SECRETTOKENxyz\n' | '$CLI' fleet join"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Joined fleet 0b1e2f3a-0000-4000-8000-000000000001"* ]]
+    [[ "$output" == *"valid until 2027-02-25T12:00:00Z"* ]]
+    # It reached the container on stdin, and nowhere else.
+    grep -qx 'spfleet1_SECRETTOKENxyz' "$DOCKER_LOG.fleet-stdin"
+    compose_calls | grep -q 'run --rm --no-deps -T fleet-agent python -m fleet.join'
+    if grep -q SECRETTOKEN "$DOCKER_LOG" "$SMOKING_PI_ENV_FILE"; then false; fi
+    [[ "$output" != *SECRETTOKEN* ]]
+    grep -qx 'FLEET_LEAD_URLS=https://a.example:8443,https://b.example' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'COMPOSE_PROFILES=influxdb,mcp,fleet' "$SMOKING_PI_ENV_FILE"
+    compose_calls | grep -q 'up -d --remove-orphans'
+}
+
+@test "fleet join: a refused join changes nothing on the host" {
+    printf 'COMPOSE_PROFILES=influxdb,mcp\nFLEET_NODE_ID=6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b\n' > "$SMOKING_PI_ENV_FILE"
+    cp "$SMOKING_PI_ENV_FILE" "$BATS_TEST_TMPDIR/env.before"
+    export STUB_FLEET_RESULT='{"joined": false, "code": "token_invalid"}' STUB_FLEET_RC=1
+    run bash -c "printf 'spfleet1_abc\n' | '$CLI' fleet join"
+    [ "$status" -eq 1 ]
+    cmp "$SMOKING_PI_ENV_FILE" "$BATS_TEST_TMPDIR/env.before"
+    if compose_calls | grep -q ' up '; then false; fi
+    # Not a join string at all: the container is never started.
+    : > "$DOCKER_LOG"
+    run bash -c "printf 'hello\n' | '$CLI' fleet join"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"not a join string"* ]]
+    run bash -c "'$CLI' fleet join < /dev/null"
+    [ "$status" -eq 2 ]
+    if grep -q 'fleet.join' "$DOCKER_LOG"; then false; fi
+}
+
+@test "fleet leave: agent stopped first, then the leave, then off; FLEET_LEAD_URLS cleared, no volume touched" {
+    printf 'COMPOSE_PROFILES=influxdb,mcp,fleet\nFLEET_NODE_ID=6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b\nFLEET_LEAD_URLS=https://a.example\n' > "$SMOKING_PI_ENV_FILE"
+    export STUB_FLEET_RESULT='{"left": true, "told_lead": true}'
+    run "$CLI" fleet leave
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"standalone again"* ]]
+    stop_line="$(grep -n 'stop fleet-agent' "$DOCKER_LOG" | head -1 | cut -d: -f1)"
+    run_line="$(grep -n 'python -m fleet.leave' "$DOCKER_LOG" | head -1 | cut -d: -f1)"
+    [ -n "$stop_line" ] && [ "$stop_line" -lt "$run_line" ]
+    grep -qx 'COMPOSE_PROFILES=influxdb,mcp' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'FLEET_LEAD_URLS=' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'FLEET_NODE_ID=6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b' "$SMOKING_PI_ENV_FILE"
+    if grep -Eq 'volume rm|down -v|--volumes' "$DOCKER_LOG"; then false; fi
+}
+
+@test "fleet leave: refused when no lead answers, and the agent goes back to work; --force is passed on" {
+    printf 'COMPOSE_PROFILES=influxdb,fleet\nFLEET_NODE_ID=6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b\nFLEET_LEAD_URLS=https://a.example\n' > "$SMOKING_PI_ENV_FILE"
+    export STUB_FLEET_RESULT='{"left": false, "told_lead": false}' STUB_FLEET_RC=1
+    run "$CLI" fleet leave
+    [ "$status" -eq 1 ]
+    grep -qx 'COMPOSE_PROFILES=influxdb,fleet' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'FLEET_LEAD_URLS=https://a.example' "$SMOKING_PI_ENV_FILE"
+    compose_calls | grep -q 'up -d fleet-agent'
+    export STUB_FLEET_RESULT='{"left": true, "told_lead": false}' STUB_FLEET_RC=0
+    run "$CLI" fleet leave --force
+    [ "$status" -eq 0 ]
+    compose_calls | grep -q 'python -m fleet.leave --force'
+    # A host that is also the lead keeps its lead list.
+    printf 'COMPOSE_PROFILES=influxdb,fleet,fleet-lead\nFLEET_NODE_ID=6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b\nFLEET_LEAD_URLS=https://a.example\n' > "$SMOKING_PI_ENV_FILE"
+    run "$CLI" fleet leave
+    [ "$status" -eq 0 ]
+    grep -qx 'FLEET_LEAD_URLS=https://a.example' "$SMOKING_PI_ENV_FILE"
+    grep -qx 'COMPOSE_PROFILES=influxdb,fleet-lead' "$SMOKING_PI_ENV_FILE"
+}
+
+@test "fleet status: once enrolled, the lead in use, heartbeats, the certificate, and revoked" {
+    printf 'COMPOSE_PROFILES=influxdb,fleet\nFLEET_NODE_ID=6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b\nFLEET_LEAD_URLS=https://a.example\n' > "$SMOKING_PI_ENV_FILE"
+    export STUB_FLEET_AGENT='{"state": "enrolled", "enrolled": true, "fleet_id": "0b1e2f3a-0000-4000-8000-000000000001", "health": "ok", "lead_in_use": "https://b.example", "lead_urls": ["https://b.example", "https://a.example"], "last_heartbeat": "2026-11-27T12:00:00Z", "next_heartbeat": "2026-11-27T12:01:00Z", "failures": 0, "cert_not_after": "2027-02-25T12:00:00Z", "renew_after": "2027-01-26T12:00:00Z"}'
+    run "$CLI" fleet status
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"enrolled:   yes, fleet 0b1e2f3a-0000-4000-8000-000000000001"* ]]
+    [[ "$output" == *"agent:      enrolled (ok)"* ]]
+    [[ "$output" == *"lead now:   https://b.example"* ]]
+    [[ "$output" == *"lead list:  https://b.example, https://a.example"* ]]
+    [[ "$output" == *"heartbeat:  last 2026-11-27T12:00:00Z, next 2026-11-27T12:01:00Z"* ]]
+    [[ "$output" == *"cert until: 2027-02-25T12:00:00Z"* ]]
+    [[ "$output" != *"Join a fleet"* ]]
+    run bash -c "'$CLI' fleet status --json 2>/dev/null"
+    echo "$output" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["lead_in_use"] == "https://b.example" and d["health"] == "ok", d
+assert d["cert_not_after"] == "2027-02-25T12:00:00Z" and d["revoked_at"] is None, d
+assert d["agent_lead_urls"] == ["https://b.example", "https://a.example"], d
+'
+    export STUB_FLEET_AGENT='{"state": "revoked", "enrolled": true, "fleet_id": "0b1e2f3a-0000-4000-8000-000000000001", "health": "failing", "revoked_at": "2026-11-27T13:00:00Z"}'
+    run "$CLI" fleet status
+    [[ "$output" == *"enrolled:   revoked from fleet 0b1e2f3a-0000-4000-8000-000000000001 at 2026-11-27T13:00:00Z"* ]]
+    [[ "$output" == *"smoking-pi fleet leave"* ]]
+    export STUB_FLEET_AGENT='{"state": "cert_expired", "enrolled": true, "fleet_id": "0b1e2f3a-0000-4000-8000-000000000001", "health": "failing", "cert_not_after": "2026-11-01T00:00:00Z"}'
+    run "$CLI" fleet status
+    [[ "$output" == *"certificate expired (2026-11-01T00:00:00Z)"* ]]
+    [[ "$output" == *"fleet leave --force"* ]]
 }
 
 @test "enable fleet creates the node id before the agent starts, and lists both services" {

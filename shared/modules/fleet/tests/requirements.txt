@@ -1,2 +1,3 @@
-# The fleet module is the standard library only; the tests need pytest.
+# The fleet module needs cryptography (pyproject.toml); the tests need pytest.
 pytest
+cryptography==50.0.2

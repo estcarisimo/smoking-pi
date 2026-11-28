@@ -130,7 +130,8 @@ cmd_services() {
             alerts) [ -n "$(env_get NOTIFY_MODE)" ] || echo "Alerts are on but go nowhere yet: $(cli_name) alerts --telegram (or --openclaw, --webhook)." ;;
             mcp) echo "Next: $(cli_name) connect (an assistant) or $(cli_name) openclaw (OpenClaw on this machine)." ;;
             pathmeter) echo "The first paths arrive about two minutes after start; what they cost shows in '$(cli_name) budget' after the first cycle." ;;
-            fleet|fleet-lead) echo "Joining a fleet is not built yet: the service only reports its state. '$(cli_name) fleet status' shows it." ;;
+            fleet) echo "The agent idles until this node joins a fleet: '$(cli_name) fleet join'. '$(cli_name) fleet status' shows it." ;;
+            fleet-lead) echo "Creating a fleet is not built yet: the service only reports its state. '$(cli_name) fleet status' shows it." ;;
         esac
     done
     # The OpenClaw automations' checks call the MCP server: without it, every

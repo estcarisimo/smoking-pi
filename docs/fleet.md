@@ -8,11 +8,10 @@ its own history, whatever happens to the lead.
 !!! warning "What this release has, and what it does not"
     This release gives every Pro installation its **identity** (a node id and
     the names a lead will show), adds the two services **switched off by
-    default**, the `smoking-pi fleet status` command, and the **protocol** the
-    node agent and the lead will speak. It does **not** create a fleet, join
-    one, send anything, or replicate any data. With the services on, they log
-    their state ("not enrolled", "no fleet initialized") and idle, without
-    opening a port or making a network call. See
+    default**, the **protocol** the node agent and the lead speak, and the
+    **node's side**: `smoking-pi fleet join`, heartbeats, certificate
+    renewal and `smoking-pi fleet leave` ([On a node](#on-a-node)). It does
+    **not** replicate any data, and the node's side needs a lead to join. See
     [What is not built yet](#what-is-not-built-yet).
 
 Fleet is part of the **Pro** edition. Basic and Standard have no fleet agent:
@@ -33,7 +32,7 @@ Fleet (docs/fleet.md)
   role:       none (Fleet is off: smoking-pi enable fleet)
   leads:      none set
   enrolled:   not known (the fleet agent is off)
-Joining a fleet is not built yet: this release gives the installation its identity.
+Join a fleet: smoking-pi fleet join (paste the join string 'smoking-pi fleet token' printed on the lead).
 ```
 
 The first `fleet status` (or `smoking-pi enable fleet`) creates the node id.
@@ -120,6 +119,156 @@ the agent will not enroll over it. Both wait for a person.
 What it does not catch: two copies of which only one ever talks to the lead.
 That one is simply the node.
 
+## On a node
+
+Everything here runs on the node, and none of it is in the measurement path:
+the node measures exactly the same whether it is in a fleet or not, whether
+the lead answers or not.
+
+### Joining a fleet
+
+On the lead, `smoking-pi fleet token` prints a join string (`spfleet1_…`).
+On the node:
+
+```bash
+smoking-pi fleet join
+```
+
+```text
+Paste the join string (from smoking-pi fleet token on the lead; it is not shown):
+Joining: the lead's root is checked against the join string, then this node enrolls (its key is made here and never leaves it).
+Joined fleet 0b1e2f3a-0000-4000-8000-000000000001 as node 6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b, through https://lead.example:8443.
+Its certificate is valid until 2027-02-25T12:00:00Z and renews by itself.
+FLEET_LEAD_URLS=https://lead.example:8443
+```
+
+The join string holds a single-use token, so it is **never an argument**:
+paste it at the prompt (it is not echoed), or pipe it in
+(`smoking-pi fleet join < file`). `smoking-pi fleet join spfleet1_…` is
+refused, because every user of the host sees a command's arguments in `ps`,
+and the shell keeps them in its history.
+
+What happens:
+
+1. The command checks this installation has a node id and is not in a fleet
+   already (joining twice, or over a corrupt or revoked enrollment, is
+   refused: `fleet leave` first).
+2. It runs the enrollment **in the fleet image** (`docker compose run` of the
+   `fleet-agent` service, the join string on its stdin): that is where the
+   key is made and kept, in the agent's volume as the agent's user, and the
+   host needs no Python package. The token is held in memory, sent once, and
+   never written, logged or printed.
+3. The enrollment fetches `/fleet/root` from the leads in order, and refuses,
+   **before sending anything**, a root whose SHA-256 is not the join
+   string's. From then on that root is the only certificate it trusts (never
+   the system's store).
+4. It generates the P-256 key, sends a certificate request with the token,
+   and checks the answer: the same fleet and node id, a chain that leads to
+   the pinned root, a certificate for this key and this node id.
+5. It writes the root, key (0600), chain and enrollment, the enrollment
+   last. Then the command records the lead list in `FLEET_LEAD_URLS` and turns
+   the agent on (`enable fleet`).
+
+A join that fails keeps nothing: the node is as it was. The messages say
+what to do:
+
+| What went wrong | What the node says |
+| --- | --- |
+| Not a join string | copy it again from `fleet token` |
+| No lead answered | nothing changed; the same join string works again until it expires |
+| The root does not match the fingerprint | **REFUSED**, nothing sent: another fleet's string, or something between the node and the lead that is not the lead |
+| Token unknown, used or expired | ask for a new join string |
+| The lead already has this node id (`node_exists`) | remove it on the lead first (an earlier join whose answer was lost, for instance), then use a new join string |
+| Two installations with this id (`duplicate_node`) | see [Two installations, one node id](#two-installations-one-node-id) |
+| The certificate does not check out | **REFUSED**, nothing kept; the lead has probably recorded the node: remove it there and ask for a new string |
+
+### What a node reports
+
+The agent sends a heartbeat every `next_heartbeat` seconds (the lead
+chooses), over mutual TLS. Today it reports what it knows without any new
+privilege, and leaves the rest absent rather than guessing:
+
+| Field | Reported | From |
+| --- | --- | --- |
+| node and site names | yes | `FLEET_NODE_NAME`, `FLEET_SITE_NAME` |
+| software version | yes | the release the command runs (`SMOKING_PI_VERSION`; `dev` from a source checkout) |
+| edition | yes | `pro` (the only edition with Fleet) |
+| profiles, capabilities | yes | `COMPOSE_PROFILES`; `influxdb` or `clickhouse` as capability |
+| last doctor's counts | not yet | needs the doctor's results where the agent can read them |
+| measuring (freshness) | not yet | needs config-manager's answer or the RRD files |
+| uplink interface | not yet | needs the host's routing table |
+| replication, seed | not yet | the data plane is not built |
+| results of the last directives | yes | the agent |
+
+### Directives
+
+| Directive | What this release does |
+| --- | --- |
+| `revoked` | stops for good (below). Overrides the rest of the response. |
+| `lead_endpoints` | replaces the lead list, kept in the agent's volume, if its epoch is higher; reported `done`, or `ignored` when not higher. |
+| `renew_now` | renews the certificate at once: `done` or `failed`. |
+| `repoint_store`, `start_seed` | keeps what it received (the store's token in its own 0600 file) and reports `ignored`: the data plane is a later release, and the lead decides. |
+| a type it does not know | `ignored`; one whose arguments fail validation, `invalid`; one without an id is dropped and logged. |
+
+### Certificates
+
+The node's certificate lives 90 days. From two thirds of its life on
+(60 days) the agent renews it: a **new key**, made on the node, a request
+over mTLS with the current certificate, and the answer checked like the
+first one. The new key and certificate replace the old pair only once both
+are written; until then the old pair stays in use, and a renewal that fails
+is retried every 15 minutes, which leaves a month of margin.
+
+### When the lead is away
+
+Nothing on the node changes. The agent tries each lead it holds, in order
+(the one that answered last first, then the list the lead gave, then any
+`FLEET_LEAD_URLS` entry missing from that list: an operator's way in when
+every lead moved), and when none answers it waits 30 s, doubling with
+±20 % jitter up to 30 minutes, and tries again, for as long as it takes. It
+logs a failure once (and once an hour while it lasts), not every attempt.
+
+After 10 minutes (or three heartbeat intervals) without an answer, the
+agent's health is `failing`: `fleet status` shows the failures, and its
+container shows as unhealthy. Nothing else reads that health, and the node
+keeps measuring as a standalone one.
+
+**A certificate that expired while the lead was away** cannot be renewed
+(renewal is authenticated with it). The agent stops sending and says so; the
+way back is a new join: `smoking-pi fleet leave --force`, a new join string
+from the lead, `smoking-pi fleet join` (the lead's operator may have to
+remove the node first, for the same node id to join again).
+
+### States that wait for a person
+
+`smoking-pi fleet status` shows the agent's state; none of these makes the
+agent exit or restart in a loop:
+
+| State | Means | What to do |
+| --- | --- | --- |
+| `not_enrolled` | not in a fleet (healthy, idle) | `fleet join` |
+| `enrolled` | heartbeats going (or retrying while the lead is away) | nothing |
+| `stopped` | the lead answered something the protocol says to stop on (`unauthenticated`, `duplicate_node`, `bad_request`…); the agent tries again after 6 hours or when it restarts | look at the lead |
+| `revoked` | the lead revoked the node; nothing is sent again, not even after a restart | `fleet leave` |
+| `cert_expired` | above | `fleet leave --force`, then a new join |
+| `state_corrupt` | the enrollment or its credentials cannot be used | `fleet leave --force`, then a new join |
+| `identity_mismatch` | the agent's volume holds another node id's enrollment | [Two installations, one node id](#two-installations-one-node-id) |
+
+### Leaving a fleet
+
+```bash
+smoking-pi fleet leave
+```
+
+The command stops the agent, tells the lead (`/fleet/leave`, over mTLS),
+removes the key, certificate, root and enrollment from the agent's volume,
+turns the agent off and clears `FLEET_LEAD_URLS` (kept on a host that is
+also the lead). If no lead answers, nothing is removed and the agent goes
+back to work; `--force` leaves anyway, and the lead keeps listing the node
+until its operator removes it. A revoked node leaves without asking the
+lead. Leaving never touches the measurements or their history, and the node
+id stays: it belongs to the installation.
+
 ## Security model
 
 - **Private CA, offline root plus one intermediate per lead.** Nodes trust
@@ -151,7 +300,7 @@ That one is simply the node.
 
 | Secret | Where | Never in |
 | --- | --- | --- |
-| Join token | nowhere on the node: read by the join command, sent once; the lead keeps its SHA-256 only | logs, `repr`, status |
+| Join token | nowhere on the node: read by `fleet join` from the terminal or stdin (never an argument), passed on stdin to the enrollment, sent once; the lead keeps its SHA-256 only | arguments, the environment, the env file, logs, `repr`, status |
 | Node private key | `fleet-agent-state`: `node/key.pem`, mode 0600 | any message |
 | Store write token | `fleet-agent-state`: `node/store-token`, 0600; and InfluxDB's remote | logs, status, heartbeat |
 | Root key | the lead that ran the fleet's creation, `lead/ca/root-key.pem`, 0600, meant to be moved offline | any message |
@@ -594,7 +743,7 @@ explains each.
 | `FLEET_NODE_ID` | created once | This installation's id. Never set by hand. |
 | `FLEET_NODE_NAME` | `node-<first 8 of the id>` | The name the lead shows. |
 | `FLEET_SITE_NAME` | `default` | The site's name; the lead gives it an id. |
-| `FLEET_LEAD_URLS` | empty | The leads' https base URLs, comma-separated, in order. |
+| `FLEET_LEAD_URLS` | empty | The leads' https base URLs, comma-separated, in order. `fleet join` writes it and `fleet leave` clears it; once joined, the agent follows the list the lead gives and tries these after it. |
 | `FLEET_LEAD_MODE` | `node` | On the lead: `node` (it measures too) or `dedicated`. |
 
 ## What is not built yet
@@ -605,10 +754,11 @@ Stated plainly, so nothing here is mistaken for a feature:
   the HTTPS endpoints, listing and revoking nodes, moving the role. Its
   commands (`fleet init`, `fleet token`, `fleet nodes`, `fleet revoke`,
   `fleet promote`) do not exist yet.
-- **The agent**: joining (`fleet join`), heartbeats, renewal, `fleet leave`.
+- **On the node**: reporting the doctor's counts, measurement freshness
+  and the uplink interface in heartbeats.
 - **The data plane**: the lead's store, per-node buckets and tokens,
   replication, the history seed, and showing the nodes' data on the lead.
 - **Election** (topology 3).
 
-Until then the two services only report their state, and
-`smoking-pi fleet status` is the one Fleet command.
+Until the lead exists, the node's side has nothing to join, and
+`smoking-pi fleet status` is the one Fleet command that does something.

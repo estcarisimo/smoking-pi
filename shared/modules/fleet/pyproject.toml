@@ -3,9 +3,12 @@ name = "smoking-pi-fleet"
 version = "1.0.0"
 description = "Fleet: a node agent and a lead, and the protocol between them"
 requires-python = ">=3.11"
-# None yet: the protocol and both entrypoints are the standard library only.
-# The Dockerfile installs nothing either: keep the two in step.
-dependencies = []
+# The protocol stays the standard library only; the node's key, CSR and
+# certificate checks need cryptography. The Dockerfile installs exactly
+# these, at the same pins: keep the two in step (tests/test_image.py).
+dependencies = [
+    "cryptography==50.0.2",
+]
 
 [project.optional-dependencies]
 dev = [
